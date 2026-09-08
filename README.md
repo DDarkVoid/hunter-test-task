@@ -1,38 +1,43 @@
-# Hunter.io API Client & Service Layer
+# Hunter.io API Client
 
-A small Python project that integrates with the Hunter.io API v2, provides a JSON-backed CRUD storage, and connects both through a service layer.
+Python-клиент для Hunter.io API v2 с resource-based архитектурой, типизацией, сервисным слоем и JSON-backed storage.
+
+Проект выполнен с учётом требований к качеству кода: `mypy`, `flake8`, `isort` и конфигурации в `setup.cfg`.
 
 ## Architecture
 
-The API client uses a resource-based architecture so it can be extended without turning `HunterClient` into a large monolithic class.
+Проект разделён на несколько уровней ответственности:
 
 ```text
 HunterClient
-├── email
-│   └── EmailEndpoint
-│       └── verify()
-├── domain
-│   └── DomainEndpoint
-│       └── search()
-└── shared HTTP layer
-    ├── API authentication
-    ├── requests.Session
-    ├── timeouts
-    └── HTTP error handling
+    │
+    ├── EmailEndpoint
+    │     └── verify()
+    │
+    ├── DomainEndpoint
+    │     └── search()
+    │
+    └── shared HTTP layer
+          ├── authentication
+          ├── requests.Session
+          ├── timeouts
+          └── HTTP error handling
 
 HunterService
-├── calls HunterClient
-└── saves API results to DataStorage
+    │
+    ├── HunterClient
+    └── DataStorage
 
 DataStorage
-└── in-memory storage synchronized with results.json
+    │
+    └── results.json
 ```
 
-### Scaling to 100+ endpoints
+### Почему resource-based architecture
 
-Endpoints are grouped by API resource instead of being added directly to one large client class.
+API endpoints группируются по ресурсам, а не помещаются в один большой `HunterClient`.
 
-For example:
+Например:
 
 ```text
 HunterClient
@@ -46,32 +51,41 @@ HunterClient
 │   ├── list()
 │   ├── create()
 │   └── delete()
-├── campaigns
-│   ├── list()
-│   └── get()
-└── account
-    └── info()
+└── campaigns
+    ├── list()
+    └── get()
 ```
 
-Each resource can be implemented as a separate endpoint class while reusing the same HTTP functionality from `HunterClient`.
+При добавлении новых endpoints существующие классы не превращаются в большой монолитный клиент.
 
-This keeps responsibilities separated and allows the client to grow without accumulating hundreds of unrelated methods in a single class.
+Каждый ресурс может иметь собственный endpoint-класс, используя общий HTTP transport.
 
 ## Project Structure
 
 ```text
-hunter_project/
-├── hunter_client.py   # Hunter.io API client and resource endpoints
-├── storage.py         # JSON-backed CRUD storage
-├── service.py         # Service layer
-├── main.py            # Application entry point and usage example
-├── setup.cfg          # mypy, flake8 and isort configuration
-├── requirements.txt   # Project dependencies
+hunter-test-task/
+├── hunter_client/
+│   ├── __init__.py
+│   ├── client.py
+│   ├── http/
+│   │   └── transport.py
+│   ├── resources/
+│   │   ├── email.py
+│   │   └── domain.py
+│   ├── dto/
+│   │   └── ...
+│   ├── service.py
+│   └── storage.py
+├── tests/
+│   └── ...
+├── main.py
+├── setup.cfg
+├── requirements.txt
 ├── .gitignore
 └── README.md
 ```
 
-## Implemented API Endpoints
+## Implemented endpoints
 
 ### Email Verifier
 
@@ -79,7 +93,7 @@ hunter_project/
 client.email.verify("user@example.com")
 ```
 
-Uses Hunter's Email Verifier endpoint.
+Verifies an email address using Hunter's Email Verifier API.
 
 ### Domain Search
 
@@ -87,32 +101,13 @@ Uses Hunter's Email Verifier endpoint.
 client.domain.search("stripe.com", limit=10)
 ```
 
-Uses Hunter's Domain Search endpoint.
-
-## Data Storage
-
-`DataStorage` provides CRUD operations and synchronizes its in-memory data with a local JSON file.
-
-Available methods:
-
-```text
-create()
-read()
-update()
-delete()
-```
-
-The default application storage file is:
-
-```text
-results.json
-```
+Searches for email addresses associated with a domain.
 
 ## Service Layer
 
-`HunterService` coordinates API requests and persistence.
+`HunterService` coordinates API calls and persistence.
 
-Available operations:
+Example:
 
 ```python
 service.verify_and_save_email("user@example.com")
@@ -121,14 +116,38 @@ service.search_and_save_domain("stripe.com", limit=10)
 
 The service layer:
 
-1. Calls the appropriate Hunter API endpoint through `HunterClient`.
+1. Calls the required API resource through `HunterClient`.
 2. Receives the API response.
-3. Creates or updates the corresponding record in `DataStorage`.
+3. Converts the response into the required application representation.
+4. Persists the result using `DataStorage`.
+
+API communication and persistence are therefore kept separate from application-level operations.
+
+## Storage
+
+`DataStorage` provides simple CRUD operations backed by a local JSON file.
+
+Supported operations:
+
+```text
+create()
+read()
+update()
+delete()
+```
+
+Default storage file:
+
+```text
+results.json
+```
+
+The storage implementation can be replaced independently from the API client.
 
 ## Requirements
 
-- Python 3.8+
-- Hunter.io API key
+* Python 3.8+
+* Hunter.io API key
 
 ## Installation
 
@@ -139,7 +158,7 @@ git clone https://github.com/DDarkVoid/hunter-test-task.git
 cd hunter-test-task
 ```
 
-Create and activate a virtual environment:
+Create a virtual environment:
 
 ### Windows
 
@@ -151,7 +170,7 @@ python -m venv .venv
 ### Linux / macOS
 
 ```bash
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 ```
 
@@ -166,10 +185,10 @@ pip install -r requirements.txt
 Create a `.env` file in the project root:
 
 ```env
-HUNTER_API_KEY=your_actual_api_key
+HUNTER_API_KEY=your_api_key
 ```
 
-Do not commit `.env` or your API key to the repository.
+Never commit `.env` or your API key to the repository.
 
 ## Running
 
@@ -179,50 +198,146 @@ Run the example application:
 python main.py
 ```
 
-The example performs:
+The example demonstrates:
 
-- email verification;
-- domain search;
-- saving the returned results to `results.json`.
+* email verification;
+* domain search;
+* persistence of API results.
 
 ## Code Quality
 
-The project is configured for static type checking and linting.
+The project uses `setup.cfg` as the central configuration for static analysis and formatting tools.
 
-Run mypy:
+### mypy
+
+Run:
 
 ```bash
 mypy .
 ```
 
-Run flake8:
+The configuration enables strict checks such as:
+
+* `disallow_untyped_defs`;
+* `strict_optional`;
+* `strict_equality`;
+* `warn_unreachable`;
+* `warn_unused_ignores`.
+
+Expected result:
+
+```text
+Success: no issues found
+```
+
+### flake8
+
+Run:
 
 ```bash
 flake8 .
 ```
 
-Run isort check:
+Expected result:
+
+```text
+0
+```
+
+### isort
+
+Check import ordering:
 
 ```bash
 isort --check-only .
 ```
 
-The project is configured according to the provided `setup.cfg`, with Django-specific configuration removed because this project does not use Django.
+To automatically fix imports:
+
+```bash
+isort .
+```
+
+## Development checks
+
+Before submitting changes, run:
+
+```bash
+isort --check-only .
+flake8 .
+mypy .
+```
+
+All checks should pass without errors.
 
 ## Design Principles
 
-The project follows a simple separation of responsibilities:
+The project follows several simple principles:
+
+### Single Responsibility
+
+Each layer has a specific responsibility:
 
 ```text
-API communication
-       ↓
-HunterClient / Endpoint resources
-       ↓
-HunterService
-       ↓
-DataStorage
-       ↓
-results.json
+HTTP transport
+      ↓
+API resources
+      ↓
+Service layer
+      ↓
+Storage
 ```
 
-This makes the main components independent and easier to extend or test.
+### Dependency separation
+
+The service layer does not implement HTTP communication directly, and the API client does not manage application persistence.
+
+### Extensibility
+
+New API resources can be added without expanding `HunterClient` into a large class.
+
+For example:
+
+```text
+resources/
+├── email.py
+├── domain.py
+├── leads.py
+├── campaigns.py
+└── account.py
+```
+
+This approach is intended to remain maintainable as the number of API endpoints grows.
+
+## Testing
+
+Tests should cover the main application boundaries:
+
+* HTTP transport;
+* API resources;
+* service layer;
+* storage CRUD operations.
+
+Run tests with:
+
+```bash
+pytest
+```
+
+## Security
+
+API credentials must be supplied through environment variables.
+
+Do not commit:
+
+```text
+.env
+*.key
+*.secret
+```
+
+or any other credentials to the repository.
+
+## License
+
+This project was created as a test assignment.
